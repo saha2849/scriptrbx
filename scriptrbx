@@ -1,0 +1,462 @@
+<!--
+Scriptrbx - single-file prototype
+Technologies: HTML, CSS, JavaScript (no backend).
+
+Features implemented locally using localStorage (prototype / demo):
+- Registration & Login
+- Admin account (default: admin / admin123) with moderation panel
+- Create script form -> sends to moderation queue
+- Approve/Reject scripts, ban users (admin only)
+- Scripts list with "most viewed" menu on top
+- View counter increments when opening a script
+- Banned users cannot log in or submit
+
+IMPORTANT: This is a client-side prototype. For a real site you must implement a secure server (Node/Express, DB), proper password hashing, authentication (sessions/JWT), server-side moderation endpoints, rate limiting, input sanitization, and protection against XSS/CSRF. Replace the default admin password immediately if you use this file locally.
+-->
+
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Scriptrbx — скрипты Roblox</title>
+<link rel="icon" href="data:;base64,iVBORw0KGgo=" />
+<style>
+  :root{
+    --bg:#0b1020; --card:#0f1724; --accent:#8b5cf6; --glass: rgba(255,255,255,0.03);
+    --glass-2: rgba(255,255,255,0.02);
+    --muted: #9aa4c0;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:Inter,ui-sans-serif,system-ui,Segoe UI,Roboto,'Helvetica Neue',Arial;background:linear-gradient(180deg,#071022 0%, #0b0f1a 100%);color:#e6eef8;min-height:100vh;}
+  header{position:sticky;top:0;backdrop-filter:blur(6px);background:linear-gradient(90deg, rgba(11,16,32,.6), rgba(6,9,15,.6));border-bottom:1px solid rgba(255,255,255,0.03);padding:12px 20px;display:flex;align-items:center;gap:16px;z-index:5}
+  .logo{font-weight:800;letter-spacing:1px;font-size:18px;display:flex;align-items:center;gap:10px}
+  .logo .mark{width:36px;height:36px;border-radius:8px;background:linear-gradient(135deg,var(--accent),#06b6d4);display:inline-flex;align-items:center;justify-content:center;font-weight:800}
+  nav{display:flex;gap:10px;align-items:center;margin-left:10px}
+  .top-scripts{display:flex;gap:8px}
+  .chip{padding:7px 12px;border-radius:999px;background:var(--glass);cursor:pointer;border:1px solid rgba(255,255,255,0.02);transition:transform .18s,background .18s}
+  .chip:hover{transform:translateY(-4px)}
+  .actions{margin-left:auto;display:flex;gap:8px}
+  button.primary{background:linear-gradient(90deg,var(--accent),#06b6d4);border:none;padding:10px 14px;border-radius:10px;color:white;cursor:pointer;font-weight:600;box-shadow:0 6px 18px rgba(139,92,246,0.14)}
+  button.ghost{background:transparent;border:1px solid rgba(255,255,255,0.06);padding:8px 12px;border-radius:10px;color:var(--muted);cursor:pointer}
+
+  main{padding:28px;display:grid;grid-template-columns:320px 1fr;gap:24px}
+  .sidebar{background:linear-gradient(180deg,var(--card), rgba(15,23,36,0.9));padding:18px;border-radius:14px;box-shadow:0 8px 30px rgba(2,6,23,0.6)}
+  .panel{margin-bottom:16px}
+  h3{margin:0 0 10px 0}
+  .stat{font-size:24px;font-weight:700}
+  .search{display:flex;gap:8px}
+  input, textarea{width:100%;padding:10px;border-radius:10px;background:transparent;border:1px solid rgba(255,255,255,0.04);color:inherit}
+  .scripts{display:grid;gap:12px}
+  .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));padding:14px;border-radius:12px;border:1px solid rgba(255,255,255,0.03);display:flex;flex-direction:column;gap:8px;transition:transform .18s,box-shadow .18s}
+  .card:hover{transform:translateY(-6px);box-shadow:0 20px 50px rgba(2,6,23,0.5)}
+  .card .meta{display:flex;justify-content:space-between;align-items:center}
+  .tags{display:flex;gap:8px}
+  .tag{font-size:12px;padding:4px 8px;border-radius:8px;background:var(--glass-2);color:var(--muted)}
+  .script-content{white-space:pre-wrap;font-family:Menlo,monospace;background:rgba(0,0,0,0.25);padding:10px;border-radius:8px;font-size:13px;max-height:120px;overflow:auto}
+  .small{font-size:13px;color:var(--muted)}
+
+  /* modal */
+  .modal-back{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:linear-gradient(180deg, rgba(3,6,12,0.6), rgba(3,6,12,0.8));z-index:20}
+  .modal{width:760px;max-width:95%;background:linear-gradient(180deg,#071226, #071122);padding:18px;border-radius:12px;border:1px solid rgba(255,255,255,0.03)}
+  .modal h2{margin:0 0 10px 0}
+  .row{display:flex;gap:10px}
+  .row .col{flex:1}
+
+  footer{padding:18px;text-align:center;color:var(--muted);font-size:13px}
+
+  /* animations */
+  @keyframes floaty{0%{transform:translateY(0)}50%{transform:translateY(-6px)}100%{transform:translateY(0)}}
+  .logo .mark{animation:floaty 4s ease-in-out infinite}
+
+  /* responsive */
+  @media (max-width:900px){main{grid-template-columns:1fr;padding:18px} .actions{display:none}}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo"><div class="mark">RBX</div>Scriptrbx</div>
+  <nav>
+    <div class="top-scripts" id="topMenu"></div>
+  </nav>
+  <div class="actions">
+    <button class="ghost" id="openCreateBtn">Создать скрипт</button>
+    <button class="primary" id="openAuthBtn">Войти / Регистрация</button>
+  </div>
+</header>
+
+<main>
+  <aside class="sidebar">
+    <div class="panel">
+      <h3>Поиск</h3>
+      <div class="search"><input id="searchInput" placeholder="Поиск по скриптам..."/></div>
+    </div>
+    <div class="panel">
+      <h3>Статистика</h3>
+      <div class="stat" id="totalScripts">0</div>
+      <div class="small">Всего одобренных скриптов</div>
+    </div>
+    <div class="panel" id="userPanel" style="display:none">
+      <h3>Профиль</h3>
+      <div id="profileName"></div>
+      <div class="small" id="profileInfo"></div>
+      <div style="margin-top:8px"><button class="ghost" id="logoutBtn">Выйти</button></div>
+    </div>
+    <div class="panel" id="adminPanel" style="display:none">
+      <h3>Админка</h3>
+      <div class="small">Утверждение скриптов: <span id="pendingCount">0</span></div>
+      <div style="margin-top:8px"><button class="ghost" id="openModBtn">Открыть модерацию</button></div>
+    </div>
+  </aside>
+
+  <section>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h2>Последние скрипты</h2>
+      <div class="small">Нажми на карточку чтобы открыть</div>
+    </div>
+
+    <div class="scripts" id="scriptsList"></div>
+  </section>
+</main>
+
+<!-- Modals -->
+<div class="modal-back" id="modalBack">
+  <div class="modal" id="modal">
+    <!-- content injected by JS -->
+  </div>
+</div>
+
+<footer>&copy; Scriptrbx prototype — Клиентская демонстрация. Для продакшна нужен сервер.</footer>
+
+<script>
+// ---------- Simple client-side "backend" using localStorage (PROTOTYPE) ----------
+const DB = {
+  usersKey: 'scriptrbx_users',
+  scriptsKey: 'scriptrbx_scripts',
+  pendingKey: 'scriptrbx_pending'
+}
+
+function loadData(key, def){try{const v=localStorage.getItem(key);return v?JSON.parse(v):def}catch(e){return def}}
+function saveData(key, obj){localStorage.setItem(key, JSON.stringify(obj))}
+
+// initialize
+if(!loadData(DB.usersKey)){
+  const admin = {id:genId(),'username':'admin','password':'admin123','isAdmin':true,'banned':false,created:Date.now()}
+  saveData(DB.usersKey,[admin])
+}
+if(!loadData(DB.scriptsKey)) saveData(DB.scriptsKey,[])
+if(!loadData(DB.pendingKey)) saveData(DB.pendingKey,[])
+
+let currentUser = null
+
+// utils
+function genId(){return 'id_'+Math.random().toString(36).slice(2,10)}
+function qs(sel){return document.querySelector(sel)}
+
+// UI helpers
+const modalBack = qs('#modalBack'); const modal = qs('#modal');
+function openModal(html){modal.innerHTML = html; modalBack.style.display='flex'}
+function closeModal(){modalBack.style.display='none'; modal.innerHTML=''}
+modalBack.addEventListener('click', (e)=>{if(e.target===modalBack) closeModal()})
+
+// auth
+function register(username,password){
+  const users = loadData(DB.usersKey,[])
+  if(users.find(u=>u.username===username)) return {ok:false,err:'Пользователь уже существует'}
+  const u={id:genId(),username,password,isAdmin:false,banned:false,created:Date.now()}
+  users.push(u); saveData(DB.usersKey,users); return {ok:true,user:u}
+}
+function login(username,password){
+  const users = loadData(DB.usersKey,[])
+  const u = users.find(x=>x.username===username && x.password===password)
+  if(!u) return {ok:false,err:'Неверные данные'}
+  if(u.banned) return {ok:false,err:'Пользователь забанен'}
+  currentUser = u; renderUI(); return {ok:true,user:u}
+}
+function logout(){currentUser=null;renderUI()}
+
+// scripts
+function createScript(title,lang,content,authorId){
+  const pending = loadData(DB.pendingKey,[])
+  pending.unshift({id:genId(),title,lang,content,authorId,created:Date.now()})
+  saveData(DB.pendingKey,pending)
+}
+function approveScript(pendingId){
+  let pending = loadData(DB.pendingKey,[])
+  const item = pending.find(p=>p.id===pendingId)
+  if(!item) return
+  pending = pending.filter(p=>p.id!==pendingId)
+  saveData(DB.pendingKey,pending)
+  const scripts = loadData(DB.scriptsKey,[])
+  scripts.unshift({...item,views:0,approvedAt:Date.now()})
+  saveData(DB.scriptsKey,scripts)
+  renderAll()
+}
+function rejectScript(id){let pending = loadData(DB.pendingKey,[]); pending = pending.filter(p=>p.id!==id); saveData(DB.pendingKey,pending); renderAll()}
+function banUser(userId){let users = loadData(DB.usersKey,[]); users = users.map(u=>u.id===userId?{...u,banned:true}:u); saveData(DB.usersKey,users); if(currentUser && currentUser.id===userId) logout(); renderAll()}
+
+function incrementView(scriptId){let scripts = loadData(DB.scriptsKey,[]); scripts = scripts.map(s=>s.id===scriptId?{...s,views:(s.views||0)+1}:s); saveData(DB.scriptsKey,scripts); renderAll()}
+
+// render
+function renderTopMenu(){const top = qs('#topMenu'); top.innerHTML=''; const scripts = loadData(DB.scriptsKey,[]).slice().sort((a,b)=> (b.views||0)-(a.views||0)).slice(0,6)
+  scripts.forEach(s=>{const c=document.createElement('div');c.className='chip';c.textContent=s.title; c.onclick=()=>showScriptModal(s.id); top.appendChild(c)})
+}
+function renderScriptsList(filter=''){const list = qs('#scriptsList'); list.innerHTML=''; const scripts = loadData(DB.scriptsKey,[]).filter(s=>s.title.toLowerCase().includes(filter.toLowerCase()))
+  scripts.forEach(s=>{
+    const card = document.createElement('div'); card.className='card';
+    card.innerHTML = `
+      <div class='meta'><strong>${escapeHtml(s.title)}</strong><div class='small'>${new Date(s.approvedAt).toLocaleString()}</div></div>
+      <div class='small'>Просмотры: ${s.views||0}</div>
+      <div class='tag'>${escapeHtml(s.lang)}</div>
+      <div class='script-content'>${escapeHtml(s.content)}</div>
+      <div style='display:flex;gap:8px;justify-content:flex-end'><button class='ghost' data-id='${s.id}'>Открыть</button></div>
+    `
+    list.appendChild(card)
+    card.querySelector('button').addEventListener('click', ()=>{incrementView(s.id); showScriptModal(s.id)})
+  })
+  qs('#totalScripts').textContent = scripts.length
+}
+
+function renderUI(){
+  if(currentUser){
+    qs('#userPanel').style.display='block'; qs('#profileName').textContent = currentUser.username; qs('#profileInfo').textContent = currentUser.isAdmin? 'Администратор':'Пользователь'
+    qs('#openAuthBtn').style.display='none'; qs('#openCreateBtn').style.display='inline-block'
+    if(currentUser.isAdmin){qs('#adminPanel').style.display='block'; qs('#openModBtn').style.display='inline-block'} else qs('#adminPanel').style.display='none'
+  } else {
+    qs('#userPanel').style.display='none'; qs('#adminPanel').style.display='none'; qs('#openAuthBtn').style.display='inline-block'; qs('#openCreateBtn').style.display='none'
+  }
+  qs('#pendingCount').textContent = loadData(DB.pendingKey,[]).length
+  renderTopMenu(); renderScriptsList(qs('#searchInput').value||'')
+}
+
+// modals
+function showAuthModal(){openModal(`
+  <h2>Вход / Регистрация</h2>
+  <div class='row' style='margin-top:10px'>
+    <div class='col'>
+      <h3>Войти</h3>
+      <input id='loginUser' placeholder='Логин' />
+      <input id='loginPass' placeholder='Пароль' type='password' style='margin-top:8px' />
+      <div style='margin-top:8px;display:flex;gap:8px;justify-content:flex-end'><button class='ghost' id='doLogin'>Войти</button></div>
+    </div>
+    <div class='col'>
+      <h3>Регистрация</h3>
+      <input id='regUser' placeholder='Логин' />
+      <input id='regPass' placeholder='Пароль' type='password' style='margin-top:8px' />
+      <div style='margin-top:8px;display:flex;gap:8px;justify-content:flex-end'><button class='primary' id='doRegister'>Зарегистрироваться</button></div>
+    </div>
+  </div>
+  <p class='small' style='margin-top:8px'>Это демо. Пароль администратора по умолчанию <strong>admin123</strong>. Поменяйте в коде.</p>
+`)
+  qs('#doRegister').addEventListener('click', ()=>{
+    const u=qs('#regUser').value.trim(); const p=qs('#regPass').value; if(!u||!p){alert('Введите логин и пароль');return}
+    const r=register(u,p); if(!r.ok){alert(r.err)} else {alert('Успешно! Теперь войдите'); closeModal()}
+  })
+  qs('#doLogin').addEventListener('click', ()=>{
+    const u=qs('#loginUser').value.trim(); const p=qs('#loginPass').value; const r=login(u,p); if(!r.ok){alert(r.err)} else {alert('Вход выполнен'); closeModal()}
+  })
+}
+
+function showCreateModal(){ if(!currentUser){alert('Нужно войти'); return}
+  if(currentUser.banned){alert('Вы забанены'); return}
+  openModal(`
+    <h2>Создать новый скрипт</h2>
+    <input id='sTitle' placeholder='Название' />
+    <div style='margin-top:8px'><input id='sLang' placeholder='Язык (Lua, JS, HTML...)' /></div>
+    <div style='margin-top:8px'><textarea id='sContent' rows='10' placeholder='Вставьте код скрипта здесь'></textarea></div>
+    <div style='display:flex;justify-content:flex-end;gap:8px;margin-top:8px'><button class='ghost' id='cancelCreate'>Отмена</button><button class='primary' id='submitCreate'>Отправить на модерацию</button></div>
+  `)
+  qs('#cancelCreate').addEventListener('click', closeModal)
+  qs('#submitCreate').addEventListener('click', ()=>{
+    const t=qs('#sTitle').value.trim(); const lang=qs('#sLang').value.trim()||'Lua'; const cont=qs('#sContent').value.trim(); if(!t||!cont){alert('Заполните название и код');return}
+    createScript(t,lang,cont,currentUser.id); alert('Скрипт отправлен на модерацию'); closeModal(); renderAll();
+  })
+}
+
+function showScriptModal(id){
+  const scripts = loadData(DB.scriptsKey,[])
+  const s = scripts.find(x=>x.id===id)
+  if(!s) return
+  openModal(`
+    <h2>${escapeHtml(s.title)}</h2>
+    <div class='small'>Язык: ${escapeHtml(s.lang)} • Просмотров: ${s.views||0}</div>
+    <div style='margin-top:10px' class='script-content'>${escapeHtml(s.content)}</div>
+    <div style='display:flex;justify-content:flex-end;margin-top:8px'><button class='ghost' id='closeScript'>Закрыть</button></div>
+  `)
+  qs('#closeScript').addEventListener('click', closeModal)
+}
+
+function showModeration(){
+  const pending = loadData(DB.pendingKey,[])
+  const users = loadData(DB.usersKey,[])
+  let html = `<h2>Модерация</h2>`
+  if(pending.length===0) html += '<div class="small">Очередь пуста</div>'
+  pending.forEach(p=>{
+    const author = users.find(u=>u.id===p.authorId)
+    html += `
+      <div style='margin-top:10px' class='card'>
+        <div style='display:flex;justify-content:space-between;align-items:center'><strong>${escapeHtml(p.title)}</strong><div class='small'>${author?escapeHtml(author.username):'Unknown'}</div></div>
+        <div class='small'>${new Date(p.created).toLocaleString()}</div>
+        <div class='script-content' style='margin-top:8px'>${escapeHtml(p.content)}</div>
+        <div style='display:flex;gap:8px;justify-content:flex-end;margin-top:8px'>
+          <button class='ghost' data-action='reject' data-id='${p.id}'>Отклонить</button>
+          <button class='primary' data-action='approve' data-id='${p.id}'>Принять</button>
+        </div>
+      </div>
+    `
+  })
+  html += '<h3 style="margin-top:12px">Пользователи</h3>'
+  users.forEach(u=>{
+    html += `<div style='display:flex;justify-content:space-between;align-items:center;padding:8px 0'><div><strong>${escapeHtml(u.username)}</strong> <div class='small'>${u.isAdmin? 'Админ': ''} ${u.banned? ' • Забанен':''}</div></div><div><button class='ghost' data-action='ban' data-id='${u.id}'>Бан</button></div></div>`
+  })
+  openModal(html)
+  modal.querySelectorAll('button[data-action]').forEach(btn=>btn.addEventListener('click',(e)=>{
+    const action = btn.getAttribute('data-action'); const id = btn.getAttribute('data-id')
+    if(action==='approve'){approveScript(id); alert('Принято')}
+    if(action==='reject'){rejectScript(id); alert('Отклонено')}
+    if(action==='ban'){if(!confirm('Забанить пользователя?')) return; banUser(id); alert('Пользователь забанен')}
+    closeModal()
+  }))
+}
+
+// small HTML escape to avoid naive XSS in this demo (still not safe for production)
+function escapeHtml(s){if(!s) return ''; return s.toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+
+// wire UI
+qs('#openAuthBtn').addEventListener('click', showAuthModal)
+qs('#openCreateBtn').addEventListener('click', showCreateModal)
+qs('#logoutBtn').addEventListener('click', ()=>{logout();alert('Вышли')})
+qs('#openModBtn').addEventListener('click', ()=>{ if(!currentUser||!currentUser.isAdmin){alert('Только для админов');return} showModeration() })
+qs('#searchInput').addEventListener('input', ()=>renderScriptsList(qs('#searchInput').value))
+
+function renderAll(){ renderUI(); }
+
+// initial render
+renderAll()
+
+// expose for debugging
+window._scriptrbx = {loadData, saveData, DB}
+</script>
+
+<!-- Дополнительный скрипт: генерация ссылок на скрипты, копирование и скачивание, автоматическое открытие по ссылке -->
+<script>
+(function(){
+  // Создаёт ссылку на скрипт (с параметром ?script=ID)
+  function generateShareLink(id){
+    try{
+      const url = new URL(location.href);
+      url.searchParams.set('script', id);
+      return url.toString();
+    }catch(e){
+      // fallback
+      return location.origin + location.pathname + '?script=' + encodeURIComponent(id);
+    }
+  }
+
+  // Скачивает скрипт как файл (расширение пробуем угадать по языку)
+  function downloadScriptFile(title, lang, content){
+    const extMap = {lua:'.lua', js:'.js', javascript:'.js', html:'.html', css:'.css', txt:'.txt'};
+    const ext = extMap[(lang||'').toLowerCase()] || '.txt';
+    const filename = (title||'script').replace(/[^a-z0-9\-_. ]/ig,'_') + ext;
+    const blob = new Blob([content], {type:'text/plain;charset=utf-8'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 5000);
+  }
+
+  // Обновлённый showScriptModal — добавим кнопки: копировать ссылку, скачать
+  window.showScriptModal = function(id){
+    const scripts = loadData(DB.scriptsKey,[])
+    const s = scripts.find(x=>x.id===id)
+    if(!s) return
+    openModal(`
+      <h2>${escapeHtml(s.title)}</h2>
+      <div class='small'>Язык: ${escapeHtml(s.lang)} • Просмотров: ${s.views||0}</div>
+      <div style='margin-top:10px' class='script-content'>${escapeHtml(s.content)}</div>
+      <div style='display:flex;justify-content:flex-end;margin-top:8px;gap:8px'>
+        <button class='ghost' id='copyLinkBtn'>Скопировать ссылку</button>
+        <button class='ghost' id='downloadBtn'>Скачать</button>
+        <button class='ghost' id='closeScript'>Закрыть</button>
+      </div>
+    `)
+
+    // copy link
+    const copyBtn = modal.querySelector('#copyLinkBtn');
+    copyBtn.addEventListener('click', ()=>{
+      const link = generateShareLink(s.id);
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(link).then(()=>alert('Ссылка скопирована'))
+      } else {
+        prompt('Скопируйте ссылку вручную:', link)
+      }
+    })
+
+    // download
+    const dlBtn = modal.querySelector('#downloadBtn');
+    dlBtn.addEventListener('click', ()=>{
+      downloadScriptFile(s.title, s.lang, s.content);
+    })
+
+    modal.querySelector('#closeScript').addEventListener('click', closeModal)
+  }
+
+  // Обновим рендер карточек: добавим кнопку "Скопировать ссылку" на карточке
+  const originalRender = renderScriptsList;
+  window.renderScriptsList = function(filter=''){
+    originalRender(filter);
+    // после рендера добавим кнопки на карточки
+    document.querySelectorAll('.card').forEach(card=>{
+      // если уже есть кнопка — пропускаем
+      if(card.querySelector('.copy-link-btn')) return;
+      const idBtn = card.querySelector('button');
+      if(!idBtn) return;
+      const wrapper = document.createElement('div'); wrapper.style.display='flex'; wrapper.style.justifyContent='flex-end'; wrapper.style.gap='8px';
+      const copy = document.createElement('button'); copy.className='ghost copy-link-btn'; copy.textContent='Ссылка';
+      const open = idBtn.cloneNode(true); open.textContent = 'Открыть';
+      // перенастроим поведение open: оставим текущее событие (оно увеличивает просмотры и открывает)
+      open.addEventListener('click', ()=>{ idBtn.click() })
+      wrapper.appendChild(copy); wrapper.appendChild(open);
+      // добавим wrapper в конец карточки
+      card.appendChild(wrapper);
+      const scriptId = (card.querySelector('button') && card.querySelector('button').getAttribute('data-id')) || null;
+      copy.addEventListener('click', ()=>{
+        // пытаемся вытащить id из data-id, иначе ищём по заголовку
+        let sid = null;
+        const b = card.querySelector('button[data-id]'); if(b) sid = b.getAttribute('data-id');
+        if(!sid){ alert('Не удалось получить id скрипта'); return }
+        const link = generateShareLink(sid);
+        if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(link).then(()=>alert('Ссылка скопирована')) }
+        else prompt('Скопируйте ссылку вручную:', link)
+      })
+    })
+  }
+
+  // При загрузке, если в URL есть ?script=ID — открываем модал с этим скриптом (если он одобрен)
+  window.addEventListener('load', ()=>{
+    const u = new URL(location.href);
+    const sid = u.searchParams.get('script');
+    if(sid){
+      // найдём в approved
+      const scripts = loadData(DB.scriptsKey,[]);
+      const s = scripts.find(x=>x.id===sid);
+      if(s){
+        // увеличим счётчик просмотров
+        incrementView(sid);
+        // небольшой таймаут чтобы UI успел отрисоваться
+        setTimeout(()=>{ showScriptModal(sid) }, 200);
+      } else {
+        // возможно ссылка на ожидающий модерации скрипт — показываем сообщение
+        const pending = loadData(DB.pendingKey,[]);
+        const p = pending.find(x=>x.id===sid);
+        if(p){ alert('Этот скрипт ещё на модерации и станет доступен после одобрения.'); }
+      }
+    }
+  })
+
+})();
+</script>
+</body>
+</html>
