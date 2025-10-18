@@ -126,7 +126,7 @@ IMPORTANT: This is a client-side prototype. For a real site you must implement a
   </div>
 </div>
 
-<footer>&copy; Scriptrbx prototype — Клиентская демонстрация. Для продакшна нужен сервер.</footer>
+<footer>&copy; Scriptrbx — клиентская версия.</footer>
 
 <script>
 // ---------- Simple client-side "backend" using localStorage (PROTOTYPE) ----------
@@ -140,10 +140,7 @@ function loadData(key, def){try{const v=localStorage.getItem(key);return v?JSON.
 function saveData(key, obj){localStorage.setItem(key, JSON.stringify(obj))}
 
 // initialize
-if(!loadData(DB.usersKey)){
-  const admin = {id:genId(),'username':'admin','password':'admin123','isAdmin':true,'banned':false,created:Date.now()}
-  saveData(DB.usersKey,[admin])
-}
+if(!loadData(DB.usersKey)) saveData(DB.usersKey,[])
 if(!loadData(DB.scriptsKey)) saveData(DB.scriptsKey,[])
 if(!loadData(DB.pendingKey)) saveData(DB.pendingKey,[])
 
@@ -246,8 +243,7 @@ function showAuthModal(){openModal(`
       <div style='margin-top:8px;display:flex;gap:8px;justify-content:flex-end'><button class='primary' id='doRegister'>Зарегистрироваться</button></div>
     </div>
   </div>
-  <p class='small' style='margin-top:8px'>Это демо. Пароль администратора по умолчанию <strong>admin123</strong>. Поменяйте в коде.</p>
-`)
+  `)
   qs('#doRegister').addEventListener('click', ()=>{
     const u=qs('#regUser').value.trim(); const p=qs('#regPass').value; if(!u||!p){alert('Введите логин и пароль');return}
     const r=register(u,p); if(!r.ok){alert(r.err)} else {alert('Успешно! Теперь войдите'); closeModal()}
